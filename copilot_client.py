@@ -1,32 +1,20 @@
+import openai
 import os
-import requests
 
-HF_API_TOKEN = os.getenv("HF_API_TOKEN")
+openai.api_key = os.getenv("TOGETHER_API_KEY")
+openai.api_base = "https://api.together.xyz/v1"
 
 def ask_copilot(prompt):
-    headers = {
-        "Authorization": f"Bearer {HF_API_TOKEN}"
-    }
-
-    json_data = {
-        "inputs": prompt,
-        "parameters": {
-            "temperature": 0.3,
-            "max_new_tokens": 200,
-        }
-    }
-    model_id = "distilgpt2"
-    model_url = f"https://api-inference.huggingface.co/models/{model_id}"
-
-
-
-#model_url = "https://api-inference.huggingface.co/models/mistralai/Mistral-7B-Instruct-v0.2"
-
     try:
-        response = requests.post(model_url, headers=headers, json=json_data, timeout=30)
-        response.raise_for_status()
-        outputs = response.json()
-        return outputs[0]['generated_text']
+        response = openai.ChatCompletion.create(
+            model="meta-llama/Llama-3.3-70B-Instruct-Turbo-Free",
+            messages=[
+                {"role": "system", "content": "You're a helpful coding assistant."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.5
+        )
+        return response['choices'][0]['message']['content']
     except Exception as e:
-        return f"HuggingFace API error: {str(e)}"
+        return f"❌ Together API error: {str(e)}"
 

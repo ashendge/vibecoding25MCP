@@ -107,6 +107,7 @@ def submit():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+
 @app.route('/description', methods=['POST'])
 @handle_db_errors
 def update_vibe_description(name: str = None, github_url: str = None):
@@ -252,6 +253,29 @@ def fetch_vibe(name):
         }), 500
     finally:
         conn.close()
+
+def build_summary_prompt(name: str, github_url: str) -> str:
+    return f"""You are an AI assistant with expertise in analyzing public codebases and understanding their purpose and capabilities.
+
+Your task is to generate a detailed summary of the project hosted at the following GitHub URL:
+{github_url}
+
+Please include:
+
+1. A brief one-sentence summary of the entire project.
+2. A comprehensive summary covering:
+   - Service name
+   - Purpose
+   - Offered methods and API endpoints
+   - Examples of how to use the endpoints and methods
+
+Focus only on the content publicly visible at the above GitHub URL, and tailor your response to developers evaluating the project for potential use.
+
+Respond in a clear and professional tone.
+"""
+
+    
+
 
 if __name__ == "__main__":
 
