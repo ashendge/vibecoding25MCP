@@ -12,15 +12,33 @@ def search_repo():
     if not github_url or not name:
         return jsonify({"error": "Missing 'name' or 'github_url'"}), 400
 
-    prompt = (
-        f"{name} provided this GitHub repository: {github_url}\n"
-        f"Please visit this repository and determine whether it contains code, documentation, "
-        f"or references related to MCP (Model Context Protocol).\n\n"
-        f"Give a reasoned answer based on what you see in the repository."
-    )
+    prompt = build_summary_prompt(name, github_url)
 
     answer = ask_copilot(prompt)
     return jsonify({"response": answer})
+
+def build_summary_prompt(name: str, github_url: str) -> str:
+    return f"""You are an AI assistant with expertise in analyzing public codebases and understanding their purpose and capabilities.
+
+Your task is to generate a detailed summary of the project hosted at the following GitHub URL:
+{github_url}
+
+Please include:
+
+1. A brief one-sentence summary of the entire project.
+2. A comprehensive summary covering:
+   - Service name
+   - Purpose
+   - Offered methods and API endpoints
+   - Examples of how to use the endpoints and methods
+
+Focus only on the content publicly visible at the above GitHub URL, and tailor your response to developers evaluating the project for potential use.
+
+Respond in a clear and professional tone.
+"""
+
+    
+
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)

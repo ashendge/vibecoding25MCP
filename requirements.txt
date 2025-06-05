@@ -1,2 +1,3 @@
 flask
 requests
+openai==0.28
