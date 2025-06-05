@@ -5,6 +5,7 @@ from openai_client import analyze_repository
 from typing import Dict, Any, Optional
 from functools import wraps
 import json
+import requests
 
 app = Flask(__name__)
 
@@ -33,9 +34,9 @@ def get_db_connection():
 def handle_db_errors(f):
     """Decorator to handle database errors."""
     @wraps(f)
-    async def wrapper(*args, **kwargs):
+    def wrapper(*args, **kwargs):
         try:
-            return await f(*args, **kwargs)
+            return f(*args, **kwargs)
         except sqlite3.Error as e:
             return jsonify({"error": f"Database error: {str(e)}"}), 500
     return wrapper
@@ -51,65 +52,88 @@ def index():
     #return jsonify(tasks)
 
 @app.route('/submit', methods=['POST'])
-def add_vibe():
-    name = request.form.get('name')
-    github_url = request.form.get('github_url')
-    if not name or not github_url:
-        return jsonify({"error": "Missing required fields"}), 400
-
-    conn = sqlite3.connect('vibe.db')
-    c = conn.cursor()
+def submit():
     try:
-        c.execute('SELECT id FROM vibe WHERE name = ?', (name,))
-        existing = c.fetchone()
-        if existing:
-            c.execute('UPDATE vibe SET github_url = ? WHERE name = ?', (github_url, name))
-        else:
-            c.execute('INSERT INTO vibe (name, github_url) VALUES (?, ?)', (name, github_url))
-        conn.commit()
-    except sqlite3.Error as e:
-        return jsonify({"error": f"Database error: {str(e)}"}), 500
-    finally:
-        conn.close()
+        name = request.form.get('name')
+        github_url = request.form.get('github_url')
+        
+        if not name or not github_url:
+            return jsonify({'error': 'Name and GitHub URL are required'}), 400
+            
+        conn = sqlite3.connect('vibe.db')
+        cursor = conn.cursor()
+        
+        try:
+            # Check if vibe exists
+            cursor.execute('SELECT id FROM vibe WHERE name = ?', (name,))
+            existing_vibe = cursor.fetchone()
+            
+            if existing_vibe:
+                # Update existing vibe
+                cursor.execute('''
+                    UPDATE vibe 
+                    SET github_url = ?
+                    WHERE name = ?
+                ''', (github_url, name))
+            else:
+                # Insert new vibe
+                cursor.execute('''
+                    INSERT INTO vibe (name, github_url)
+                    VALUES (?, ?)
+                ''', (name, github_url))
+            
+            conn.commit()
 
-    update_vibe_description(name, github_url)
-    return redirect(url_for('index'))
+            # Call the /description POST route internally
+            try:
+                desc_response = requests.post(
+                    url_for('update_vibe_description', _external=True),
+                    json={"name": name, "github_url": github_url}
+                )
+                # Optionally, you can check desc_response.status_code or log desc_response.json()
+            except Exception as e:
+                print(f"Failed to call /description: {e}")
 
+            return redirect(url_for('index'))
+            
+        except sqlite3.Error as e:
+            conn.rollback()
+            return jsonify({'error': f'Database error: {str(e)}'}), 500
+            
+        finally:
+            conn.close()
+
+    
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/description', methods=['POST'])
 @handle_db_errors
-async def update_vibe_description(name: str, github_url: str):
+def update_vibe_description(name: str = None, github_url: str = None):
     """
     Update the description of a vibe based on repository analysis.
-    
-    Args:
-        name (str): The name of the repository
-        
-    Returns:
-        JSON response with the analysis results or error message
     """
     data = request.get_json()
     if not data:
         return jsonify({"error": "No JSON data provided"}), 400
-        
-    github_url = data.get('github_url')
-    if not github_url:
-        return jsonify({"error": "Missing 'github_url' in request"}), 400
+    name = data.get('name', name)
+    github_url = data.get('github_url', github_url)
+    if not name or not github_url:
+        return jsonify({"error": "Missing 'name' or 'github_url' in request"}), 400
 
     # Generate and process the prompt
     prompt = get_repo_analysis_prompt(name, github_url)
     try:
-        analysis = await analyze_repository(prompt)
+        import asyncio
+        analysis = asyncio.run(analyze_repository(prompt))
     except Exception as e:
         return jsonify({"error": f"Failed to analyze repository: {str(e)}"}), 500
 
-    # Extract summary and description from the analysis
     summary = analysis.get('summary')
     description = analysis.get('description')
     if not summary or not description:
         return jsonify({"error": "Analysis did not provide required fields"}), 400
 
-    # Update the database
     conn = sqlite3.connect('vibe.db', uri=True)
     c = conn.cursor()
     try:
@@ -126,8 +150,6 @@ async def update_vibe_description(name: str, github_url: str):
     finally:
         conn.close()
 
-
-
 @app.route('/delete/<int:vibe_id>')
 def delete_vibe(vibe_id):
     conn = sqlite3.connect('vibe.db')
@@ -137,23 +159,99 @@ def delete_vibe(vibe_id):
     conn.close()
     return redirect(url_for('index'))
 
-
-@app.route("/search", methods=["POST"])
+@app.route("/search", methods=["GET"])
 def search_repo():
-    data = request.json
-    name = data.get("name")
-    github_url = data.get("github_url")
-    summary = data.get("summary")
-    description = data.get("description")
-    click_count = data.get("click_count")
-    star_count = data.get("star_count")
-    json_data = data.get("json")
+    """
+    Search and return all vibes from the database as JSON.
+    
+    Returns:
+        JSON response containing all vibes with their details
+    """
+    conn = sqlite3.connect('vibe.db')
+    conn.row_factory = sqlite3.Row  # This enables column access by name
+    c = conn.cursor()
+    try:
+        c.execute('SELECT id, name, github_url, summary, description, click_count, stars_count, json FROM vibe')
+        rows = c.fetchall()
+        
+        # Convert rows to list of dictionaries
+        vibes = []
+        for row in rows:
+            vibe = {
+                'id': row['id'],
+                'name': row['name'],
+                'github_url': row['github_url'],
+                'summary': row['summary'],
+                'description': row['description'],
+                'click_count': row['click_count'],
+                'stars_count': row['stars_count'],
+                'json': row['json']
+            }
+            vibes.append(vibe)
+            
+        return jsonify({
+            'status': 'success',
+            'count': len(vibes),
+            'data': vibes
+        })
+    except sqlite3.Error as e:
+        return jsonify({
+            'status': 'error',
+            'message': f'Database error: {str(e)}'
+        }), 500
+    finally:
+        conn.close()
 
-    if not github_url or not name:
-        return jsonify({"error": "Missing 'name' or 'github_url'"}), 400
-
-    json_data = json.dumps(my_dict)
-    return json_data
+@app.route("/fetch/<name>", methods=["GET"])
+def fetch_vibe(name):
+    """
+    Fetch a specific vibe by name from the database.
+    
+    Args:
+        name (str): The name of the vibe to fetch
+        
+    Returns:
+        JSON response containing the vibe details or error message
+    """
+    conn = sqlite3.connect('vibe.db')
+    conn.row_factory = sqlite3.Row
+    c = conn.cursor()
+    try:
+        c.execute('''
+            SELECT id, name, github_url, summary, description, click_count, stars_count, json 
+            FROM vibe 
+            WHERE name = ?
+        ''', (name,))
+        row = c.fetchone()
+        
+        if row:
+            vibe = {
+                'id': row['id'],
+                'name': row['name'],
+                'github_url': row['github_url'],
+                'summary': row['summary'],
+                'description': row['description'],
+                'click_count': row['click_count'],
+                'stars_count': row['stars_count'],
+                'json': row['json']
+            }
+            return jsonify({
+                'status': 'success',
+                'data': vibe
+            })
+        else:
+            return jsonify({
+                'status': 'error',
+                'message': f'No vibe found with name: {name}'
+            }), 404
+            
+    except sqlite3.Error as e:
+        return jsonify({
+            'status': 'error',
+            'message': f'Database error: {str(e)}'
+        }), 500
+    finally:
+        conn.close()
 
 if __name__ == "__main__":
 
