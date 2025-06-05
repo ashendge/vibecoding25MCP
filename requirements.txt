@@ -1,3 +1,5 @@
 flask
 requests
+aiohttp
+python-dotenv
 openai==0.28
