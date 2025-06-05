@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Vibe Coding MCP</title>
+</head>
+<body>
+    <h1>Vibe Coding MCP</h1>
+    <form action="/submit" method="post">
+        <label for="name">Name:</label>
+        <input type="text" id="name" name="name" required><br>
+        <label for="github_url">GitHub URL:</label>
+        <input type="text" id="github_url" name="github_url" required><br>
+        <input type="submit" value="Submit">
+    </form>
+    <ul>
+        {% for task in tasks %}
+            <li>{{ task }}</li>
+        {% endfor %}
+    </ul>
+</body>
+</html> 
