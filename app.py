@@ -122,8 +122,12 @@ def update_vibe_description(name: str = None, github_url: str = None):
     if not name or not github_url:
         return jsonify({"error": "Missing 'name' or 'github_url' in request"}), 400
 
+    print(name, github_url)
+
     # Generate and process the prompt
     prompt = get_repo_analysis_prompt(name, github_url)
+    print(prompt)
+    
     try:
         import asyncio
         analysis = asyncio.run(analyze_repository(prompt))
@@ -132,24 +136,47 @@ def update_vibe_description(name: str = None, github_url: str = None):
 
     summary = analysis.get('summary')
     description = analysis.get('description')
+    print(summary, description)
+
+    # Ensure summary and description are strings
+    summary = str(summary) if summary is not None else ""
+    description = str(description) if description is not None else ""
+
     if not summary or not description:
         return jsonify({"error": "Analysis did not provide required fields"}), 400
 
-    conn = sqlite3.connect('vibe.db', uri=True)
-    c = conn.cursor()
+    conn = sqlite3.connect('vibe.db')
+    cursor = conn.cursor()
     try:
-        conn.execute(
-            'UPDATE vibe SET summary = ?, description = ? WHERE name = ?',
-            (summary, description, name)
-        )
+        # Check if vibe exists
+        cursor.execute('SELECT id FROM vibe WHERE name = ?', (name,))
+        existing_vibe = cursor.fetchone()
+            
+        if existing_vibe:
+            # Update existing vibe
+            cursor.execute('''
+                UPDATE vibe 
+                SET github_url = ?,
+                summary = ?,
+                description = ?
+                WHERE name = ?
+                ''', (github_url, summary, description, name))
+        else:
+            # Insert new vibe
+            cursor.execute('''
+                INSERT INTO vibe (name, github_url, summary, description)
+                VALUES (?, ?, ?, ?)
+            ''', (name, github_url, summary, description))
         conn.commit()
-        return jsonify({
-            "message": "Description updated successfully",
-            "summary": summary,
-            "description": description
-        })
     finally:
         conn.close()
+
+    return jsonify({
+        "message": "Description updated successfully",
+        "summary": summary,
+        "description": description
+    })
+
 
 @app.route('/delete/<int:vibe_id>')
 def delete_vibe(vibe_id):
