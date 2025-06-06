@@ -164,14 +164,21 @@ def search_repo():
     """
     Search and return all vibes from the database as JSON.
     
+    Query Parameters:
+        top (int, optional): If provided, order results by click_count DESC and limit to this number.
+        
     Returns:
         JSON response containing all vibes with their details
     """
+    top = request.args.get('top', type=int)
     conn = sqlite3.connect('vibe.db')
     conn.row_factory = sqlite3.Row  # This enables column access by name
     c = conn.cursor()
     try:
-        c.execute('SELECT id, name, github_url, summary, description, click_count, stars_count, json FROM vibe')
+        if top is not None:
+            c.execute('SELECT id, name, github_url, summary, description, click_count, stars_count, json FROM vibe ORDER BY click_count DESC LIMIT ?', (top,))
+        else:
+            c.execute('SELECT id, name, github_url, summary, description, click_count, stars_count, json FROM vibe')
         rows = c.fetchall()
         
         # Convert rows to list of dictionaries
@@ -245,6 +252,57 @@ def fetch_vibe(name):
                 'message': f'No vibe found with name: {name}'
             }), 404
             
+    except sqlite3.Error as e:
+        return jsonify({
+            'status': 'error',
+            'message': f'Database error: {str(e)}'
+        }), 500
+    finally:
+        conn.close()
+
+@app.route("/fetch_top_trending", methods=["GET"])
+def fetch_top_trending():
+    """
+    Fetch the top trending vibes based on click_count and stars_count.
+    
+    Query Parameters:
+        count (int): Number of vibes to return (default: 6)
+        
+    Returns:
+        JSON response containing the top trending vibes
+    """
+    count = request.args.get('count', default=2, type=int)
+    conn = sqlite3.connect('vibe.db')
+    conn.row_factory = sqlite3.Row
+    c = conn.cursor()
+    try:
+        c.execute('''
+            SELECT id, name, github_url, summary, description, click_count, stars_count, json 
+            FROM vibe 
+            ORDER BY click_count DESC, stars_count DESC 
+            LIMIT ?
+        ''', (count,))
+        rows = c.fetchall()
+        
+        vibes = []
+        for row in rows:
+            vibe = {
+                'id': row['id'],
+                'name': row['name'],
+                'github_url': row['github_url'],
+                'summary': row['summary'],
+                'description': row['description'],
+                'click_count': row['click_count'],
+                'stars_count': row['stars_count'],
+                'json': row['json']
+            }
+            vibes.append(vibe)
+            
+        return jsonify({
+            'status': 'success',
+            'count': len(vibes),
+            'data': vibes
+        })
     except sqlite3.Error as e:
         return jsonify({
             'status': 'error',
